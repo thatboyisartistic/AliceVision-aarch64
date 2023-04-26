@@ -124,8 +124,8 @@ if(ALICEVISION_BUILD_SFM)
   )
 
     # Bootstrap
-    alicevision_add_software(aliceVision_bootstrapSfM
-    SOURCE main_bootstrapSfM.cpp
+    alicevision_add_software(aliceVision_pairsEstimations
+    SOURCE main_pairsEstimations.cpp
     FOLDER ${FOLDER_SOFTWARE_PIPELINE}
     LINKS aliceVision_system
             aliceVision_cmdline
