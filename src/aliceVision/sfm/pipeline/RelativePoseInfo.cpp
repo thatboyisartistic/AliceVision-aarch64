@@ -106,7 +106,7 @@ bool robustRelativePose(const Mat3& K1, const Mat3& K2,
 
   if(relativePose_info.vec_inliers.size() < kernel.getMinimumNbRequiredSamples() * ALICEVISION_MINIMUM_SAMPLES_COEF)
   {
-    ALICEVISION_LOG_INFO("robustRelativePose: no sufficient coverage (the model does not support enough samples): " << relativePose_info.vec_inliers.size());
+    ALICEVISION_LOG_DEBUG("robustRelativePose: no sufficient coverage (the model does not support enough samples): " << relativePose_info.vec_inliers.size());
     return false; // no sufficient coverage (the model does not support enough samples)
   }
 
@@ -117,7 +117,7 @@ bool robustRelativePose(const Mat3& K1, const Mat3& K2,
     K1, K2, x1, x2,
     relativePose_info.essential_matrix, relativePose_info.vec_inliers, &R, &t))
   {
-    ALICEVISION_LOG_INFO("robustRelativePose: cannot find a valid [R|t] couple that makes the inliers in front of the camera.");
+    ALICEVISION_LOG_DEBUG("robustRelativePose: cannot find a valid [R|t] couple that makes the inliers in front of the camera.");
     return false; // cannot find a valid [R|t] couple that makes the inliers in front of the camera.
   }
 
