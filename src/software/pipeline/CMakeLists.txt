@@ -110,8 +110,8 @@ if(ALICEVISION_BUILD_SFM)
   )
 
   # Track builder
-  alicevision_add_software(aliceVision_tracksBuilder
-    SOURCE main_tracksBuilder.cpp
+  alicevision_add_software(aliceVision_tracksBuilding
+    SOURCE main_tracksBuilding.cpp
     FOLDER ${FOLDER_SOFTWARE_PIPELINE}
     LINKS aliceVision_system
           aliceVision_cmdline

@@ -27,8 +27,8 @@
 
 // These constants define the current software version.
 // They must be updated when the command line is changed.
-#define ALICEVISION_SOFTWARE_VERSION_MAJOR 2
-#define ALICEVISION_SOFTWARE_VERSION_MINOR 1
+#define ALICEVISION_SOFTWARE_VERSION_MAJOR 1
+#define ALICEVISION_SOFTWARE_VERSION_MINOR 0
 
 using namespace aliceVision;
 
@@ -69,7 +69,7 @@ int aliceVision_main(int argc, char** argv)
         "Matches folders previously added to the SfMData file will be ignored.")
         ("filterTrackForks", po::value<bool>(&filterTrackForks)->default_value(filterTrackForks), "Enable/Disable the track forks removal. A track contains a fork when incoherent matches leads to multiple features in the same image for a single track.\n");
 
-    CmdLine cmdline("AliceVision tracksBuilder");
+    CmdLine cmdline("AliceVision tracksBuilding");
 
     cmdline.add(requiredParams);
     cmdline.add(optionalParams);
