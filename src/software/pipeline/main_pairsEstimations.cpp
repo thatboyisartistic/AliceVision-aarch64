@@ -50,6 +50,55 @@ namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
 
+bool getPoseCovariance(Mat3& R, Vec3& t, std::vector<Vec3>& structure, std::vector<size_t>& newVecInliers, std::shared_ptr<camera::Pinhole> & refPinhole, std::shared_ptr<camera::Pinhole> & nextPinhole)
+{
+    /*geometry::Pose3 poseRef= geometry::poseFromRT(R, t);
+    geometry::Pose3 poseNext;
+
+    Eigen::Matrix3d A = Eigen::Matrix3d::Zero();
+    Eigen::Matrix3d right = Eigen::Matrix3d::Zero();
+
+    Eigen::Matrix<double,-1,-1> J(structure.size() * 4, 3 + structure.size() * 3);
+    J.fill(0);
+    
+    int pos = 0;
+    for (const auto & pt : structure)
+    {
+        Eigen::Matrix<double, 2, 3> JCref = (refPinhole->getDerivativeProjectWrtPose(poseRef, pt.homogeneous()) * getJacobian_AB_wrt_A<4, 4, 4>(Eigen::Matrix4d::Identity(), poseRef.getHomogeneous())).block<2, 3>(0, 12);
+
+    
+        Eigen::Matrix<double, 2, 3> JPref = refPinhole->getDerivativeProjectWrtPoint(poseRef, pt.homogeneous()).block<2, 3>(0, 0);
+        Eigen::Matrix<double, 2, 3> JPnext = nextPinhole->getDerivativeProjectWrtPoint(poseNext, pt.homogeneous()).block<2, 3>(0, 0);
+
+        
+        J.block<2, 3>(pos * 4, 0) = JCref;
+        J.block<2, 3>(pos * 4, 3 + pos * 3) = JPref;
+        J.block<2, 3>(pos * 4 + 2, 3 + pos * 3) = JPnext;
+
+        Eigen::Matrix3d D = JPref.transpose() * JPref + JPnext.transpose() * JPnext;
+        if (std::abs(D.determinant()) < 1e-6)
+        {
+            continue;
+        }
+
+        Eigen::Matrix3d B = JCref.transpose() * JPref;
+        Eigen::Matrix3d Dinv = D.inverse();
+
+        A += JCref.transpose() * JCref;
+        right += B * Dinv * B.transpose();
+
+        pos++;
+    }
+
+    Eigen::MatrixXd J2 = J.block(0, 0, pos * 4, 3 + pos * 3);
+
+    std::cout << "---------" << std::endl;
+    std::cout << (A - right).inverse() << std::endl;
+
+    std::cout << (J2.transpose() * J2).inverse().block<3, 3>(0, 0) << std::endl;*/
+
+    return true;
+}
 
 
 bool getPoseStructure(Mat3& R, Vec3& t, std::vector<Vec3>& structure, std::vector<size_t>& newVecInliers, const Mat3& E,
@@ -182,6 +231,8 @@ int aliceVision_main(int argc, char** argv)
     std::vector<std::string> featuresFolders;
     std::string tracksFilename;
     std::string outputFile;
+    int rangeStart = -1;
+    int rangeSize = 1;
 
     // user optional parameters
     std::string outputSfMViewsAndPoses;
@@ -206,7 +257,9 @@ int aliceVision_main(int argc, char** argv)
     po::options_description optionalParams("Optional parameters");
     optionalParams.add_options()
     ("featuresFolders,f", po::value<std::vector<std::string>>(&featuresFolders)->multitoken(), "Path to folder(s) containing the extracted features.")
-    ("describerTypes,d", po::value<std::string>(&describerTypesName)->default_value(describerTypesName),feature::EImageDescriberType_informations().c_str());
+    ("describerTypes,d", po::value<std::string>(&describerTypesName)->default_value(describerTypesName),feature::EImageDescriberType_informations().c_str())
+    ("rangeStart", po::value<int>(&rangeStart)->default_value(rangeStart), "Range image index start.")
+    ("rangeSize", po::value<int>(&rangeSize)->default_value(rangeSize), "Range size.");
 
     CmdLine cmdline("AliceVision pairsEstimations");
 
@@ -220,6 +273,7 @@ int aliceVision_main(int argc, char** argv)
     // set maxThreads
     HardwareContext hwc = cmdline.getHardwareContext();
     omp_set_num_threads(hwc.getMaxThreads());
+    
 
     // load input SfMData scene
     sfmData::SfMData sfmData;
@@ -229,9 +283,33 @@ int aliceVision_main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
+    // Define range to compute
+    if(rangeStart != -1)
+    {
+      if(rangeStart < 0 || rangeSize < 0 || rangeStart > sfmData.getViews().size())
+      {
+        ALICEVISION_LOG_ERROR("Range is incorrect");
+        return EXIT_FAILURE;
+      }
+
+      if(rangeStart + rangeSize > sfmData.getViews().size())
+      {
+        rangeSize = sfmData.getViews().size() - rangeStart;
+      }
+    }
+    else
+    {
+        rangeStart = 0;
+        rangeSize = sfmData.getViews().size();
+    }
+    ALICEVISION_LOG_DEBUG("Range to compute: rangeStart=" << rangeStart << ", rangeSize=" << rangeSize);
+
+    
+
     // get imageDescriber type
     const std::vector<feature::EImageDescriberType> describerTypes =
         feature::EImageDescriberType_stringToEnums(describerTypesName);
+        
 
     // features reading
     feature::FeaturesPerView featuresPerView;
@@ -270,13 +348,23 @@ int aliceVision_main(int argc, char** argv)
     computeCovisibility(covisibility, mapTracks);
     std::mt19937 randomNumberGenerator;
 
+    
     ALICEVISION_LOG_INFO("Process co-visibility");
 
-    std::ofstream of(outputFile);
+    std::stringstream ss;
+    ss << "_" << rangeStart << ".json";
+    fs::path path(outputFile);
+    path.replace_extension(ss.str());
+    std::ofstream of(path.string());
+
     std::vector<sfm::ReconstructedPair> reconstructedPairs;
 
-#pragma omp parallel for
-    for(int posPairs = 0; posPairs < covisibility.size(); posPairs++)
+    double ratioChunk = double(covisibility.size()) / double(sfmData.getViews().size());
+    int chunkStart = int(double(rangeStart) * ratioChunk);
+    int chunkEnd = int(double(rangeStart + rangeSize) * ratioChunk);
+
+//#pragma omp parallel for
+    for(int posPairs = chunkStart; posPairs < chunkEnd; posPairs++)
     {
         auto iterPairs = covisibility.begin();
         std::advance(iterPairs, posPairs);
@@ -343,6 +431,11 @@ int aliceVision_main(int argc, char** argv)
             continue;
         }
 
+        if(!getPoseCovariance(reconstructed.R, reconstructed.t, structure, inliers, refPinhole, nextPinhole))
+        {
+            continue;
+        }
+
 #pragma omp critical
         {
             reconstructedPairs.push_back(reconstructed);
@@ -354,6 +447,12 @@ int aliceVision_main(int argc, char** argv)
                 reconstructedPairs.clear();
             }
         }
+    }
+
+    //Serialize last pairs
+    {
+        boost::json::value jv = boost::json::value_from(reconstructedPairs);
+        of << boost::json::serialize(jv);
     }
 
     of.close();
