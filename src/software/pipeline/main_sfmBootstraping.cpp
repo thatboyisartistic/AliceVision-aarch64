@@ -213,10 +213,84 @@ double computeScore(const feature::FeaturesPerView & featuresPerView, const trac
     return sum;
 }
 
+
+bool buildSfmData(sfmData::SfMData & sfmData, const sfm::ReconstructedPair & pair, const track::TracksMap& tracksMap, const feature::FeaturesPerView & featuresPerView, const std::vector<IndexT> & usedTracks)
+{
+    const sfmData::View& refView = sfmData.getView(pair.reference);
+    const sfmData::View& nextView = sfmData.getView(pair.next);
+
+    std::shared_ptr<camera::IntrinsicBase> refIntrinsics = sfmData.getIntrinsicsharedPtr(refView.getIntrinsicId());
+    std::shared_ptr<camera::IntrinsicBase> nextIntrinsics = sfmData.getIntrinsicsharedPtr(nextView.getIntrinsicId());
+    std::shared_ptr<camera::Pinhole> refPinhole = std::dynamic_pointer_cast<camera::Pinhole>(refIntrinsics);
+    std::shared_ptr<camera::Pinhole> nextPinhole = std::dynamic_pointer_cast<camera::Pinhole>(nextIntrinsics);
+
+    if (refPinhole==nullptr || nextPinhole == nullptr)
+    {
+        return false;
+    }
+    
+    const feature::MapFeaturesPerDesc& refFeaturesPerDesc = featuresPerView.getFeaturesPerDesc(pair.reference);
+    const feature::MapFeaturesPerDesc& nextFeaturesPerDesc = featuresPerView.getFeaturesPerDesc(pair.next);
+
+    const Eigen::Matrix3d Kref = refPinhole->K();
+    const Eigen::Matrix3d Knext = nextPinhole->K();
+
+    Mat34 P1, P2;
+    P_from_KRt(Kref, Mat3::Identity(), Vec3::Zero(), &P1);
+    P_from_KRt(Knext, pair.R, pair.t, &P2);
+    
+    size_t count = 0;
+    std::vector<double> angles;
+    for(const auto& trackId : usedTracks)
+    {
+        const track::Track& track = tracksMap.at(trackId);
+
+        const feature::PointFeatures& refFeatures = refFeaturesPerDesc.at(track.descType);
+        const feature::PointFeatures& nextFeatures = nextFeaturesPerDesc.at(track.descType);
+        const IndexT refFeatureId = track.featPerView.at(pair.reference);
+        const IndexT nextFeatureId = track.featPerView.at(pair.next);
+        const Vec2 refpt = refFeatures[refFeatureId].coords().cast<double>();
+        const Vec2 nextpt = nextFeatures[nextFeatureId].coords().cast<double>();
+
+        const Vec2 refptu = refIntrinsics->get_ud_pixel(refpt);
+        const Vec2 nextptu = nextIntrinsics->get_ud_pixel(nextpt);
+
+        Vec3 X;
+        multiview::TriangulateDLT(P1, refptu, P2, nextptu, &X);
+        
+        if (X(2) < 0.0)
+        {
+            continue;
+        }
+
+        sfmData::Landmark landmark;
+        landmark.descType = track.descType;
+        landmark.X = X;
+        
+        sfmData::Observation refObs;
+        refObs.id_feat = refFeatureId;
+        refObs.scale = refFeatures[refFeatureId].scale();
+        refObs.x = refpt;
+
+        sfmData::Observation nextObs;
+        nextObs.id_feat = nextFeatureId;
+        nextObs.scale = nextFeatures[nextFeatureId].scale();
+        nextObs.x = nextpt;
+
+        landmark.observations[pair.reference] = refObs;
+        landmark.observations[pair.next] = nextObs;
+        
+        sfmData.getLandmarks()[trackId] = landmark;
+    }
+
+    return true;
+}
+
 int aliceVision_main(int argc, char** argv)
 {
     // command-line parameters
     std::string sfmDataFilename;
+    std::string sfmDataOutputFilename;
     std::vector<std::string> featuresFolders;
     std::string tracksFilename;
     std::string pairsDirectory;
@@ -224,7 +298,6 @@ int aliceVision_main(int argc, char** argv)
     // user optional parameters
     std::string describerTypesName = feature::EImageDescriberType_enumToString(feature::EImageDescriberType::SIFT);
     std::pair<std::string, std::string> initialPairString("", "");
-
 
     const double maxEpipolarDistance = 4.0;
     const double minAngle = 5.0;
@@ -234,7 +307,8 @@ int aliceVision_main(int argc, char** argv)
     po::options_description requiredParams("Required parameters");
     requiredParams.add_options()
     ("input,i", po::value<std::string>(&sfmDataFilename)->required(), "SfMData file.")
-    ("tracksFilename,i", po::value<std::string>(&tracksFilename)->required(), "Tracks file.")
+    ("output,o", po::value<std::string>(&sfmDataOutputFilename)->required(), "SfMData output file.")
+    ("tracksFilename,t", po::value<std::string>(&tracksFilename)->required(), "Tracks file.")
     ("pairs,p", po::value<std::string>(&pairsDirectory)->required(), "Path to the pairs directory.");
 
     po::options_description optionalParams("Optional parameters");
@@ -262,6 +336,14 @@ int aliceVision_main(int argc, char** argv)
         ALICEVISION_LOG_ERROR("The input SfMData file '" + sfmDataFilename + "' cannot be read.");
         return EXIT_FAILURE;
     }
+
+
+    if (sfmData.getValidViews().size() >= 2)
+    {
+        ALICEVISION_LOG_INFO("SfmData has already an initialization");
+        return EXIT_SUCCESS;
+    }
+
 
     // get imageDescriber type
     const std::vector<feature::EImageDescriberType> describerTypes =
@@ -329,6 +411,7 @@ int aliceVision_main(int argc, char** argv)
 
     double bestScore = 0.0;
     sfm::ReconstructedPair bestPair;
+    std::vector<IndexT> bestUsedTracks;
 
 #pragma omp parallel for
     for (const sfm::ReconstructedPair & pair: reconstructedPairs)
@@ -349,22 +432,24 @@ int aliceVision_main(int argc, char** argv)
         double nextScore = computeScore(featuresPerView, mapTracks, usedTracks, pair.next, 16);
 
         double score = std::min(refScore, nextScore) * radianToDegree(angle);
+
+        #pragma omp critical
+        {
         if (score > bestScore)
         {
             bestPair = pair;
             bestScore = score;
+            bestUsedTracks = usedTracks;
         }
-
-        #pragma omp critical
-        {
-            count++;
         }
-
-        
     }
 
-    std::cout << sfmData.getView(bestPair.reference).getFrameId() << std::endl;
-    std::cout << sfmData.getView(bestPair.next).getFrameId() << std::endl;
+    if (!buildSfmData(sfmData, bestPair, mapTracks, featuresPerView, bestUsedTracks))
+    {
+        return EXIT_FAILURE;
+    }
+
+    sfmDataIO::Save(sfmData, sfmDataOutputFilename, sfmDataIO::ESfMData::ALL);
 
     return EXIT_SUCCESS;
 }
