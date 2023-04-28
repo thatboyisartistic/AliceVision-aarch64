@@ -52,50 +52,52 @@ namespace fs = boost::filesystem;
 
 bool getPoseCovariance(Mat3& R, Vec3& t, std::vector<Vec3>& structure, std::vector<size_t>& newVecInliers, std::shared_ptr<camera::Pinhole> & refPinhole, std::shared_ptr<camera::Pinhole> & nextPinhole)
 {
-    /*geometry::Pose3 poseRef= geometry::poseFromRT(R, t);
-    geometry::Pose3 poseNext;
+    geometry::Pose3 poseRef;
+    geometry::Pose3 poseNext = geometry::poseFromRT(R, t);
 
     Eigen::Matrix3d A = Eigen::Matrix3d::Zero();
     Eigen::Matrix3d right = Eigen::Matrix3d::Zero();
 
-    Eigen::Matrix<double,-1,-1> J(structure.size() * 4, 3 + structure.size() * 3);
+    Eigen::Matrix<double, -1, -1> J(structure.size() * 4, 3 + structure.size() * 3);
     J.fill(0);
     
     int pos = 0;
     for (const auto & pt : structure)
     {
-        Eigen::Matrix<double, 2, 3> JCref = (refPinhole->getDerivativeProjectWrtPose(poseRef, pt.homogeneous()) * getJacobian_AB_wrt_A<4, 4, 4>(Eigen::Matrix4d::Identity(), poseRef.getHomogeneous())).block<2, 3>(0, 12);
+        Eigen::Matrix<double, 2, 3> JCnext = (nextPinhole->getDerivativeProjectWrtPose(poseNext, pt.homogeneous()) * getJacobian_AB_wrt_A<4, 4, 4>(Eigen::Matrix4d::Identity(), poseNext.getHomogeneous())).block<2, 3>(0, 12);
 
-    
         Eigen::Matrix<double, 2, 3> JPref = refPinhole->getDerivativeProjectWrtPoint(poseRef, pt.homogeneous()).block<2, 3>(0, 0);
         Eigen::Matrix<double, 2, 3> JPnext = nextPinhole->getDerivativeProjectWrtPoint(poseNext, pt.homogeneous()).block<2, 3>(0, 0);
 
-        
-        J.block<2, 3>(pos * 4, 0) = JCref;
+        J.block<2, 3>(pos * 4 + 2, 0) = JCnext;
         J.block<2, 3>(pos * 4, 3 + pos * 3) = JPref;
         J.block<2, 3>(pos * 4 + 2, 3 + pos * 3) = JPnext;
 
         Eigen::Matrix3d D = JPref.transpose() * JPref + JPnext.transpose() * JPnext;
         if (std::abs(D.determinant()) < 1e-6)
         {
-            continue;
+            //continue;
         }
 
-        Eigen::Matrix3d B = JCref.transpose() * JPref;
+        /*Eigen::Matrix3d B = JCref.transpose() * JPref;
         Eigen::Matrix3d Dinv = D.inverse();
 
         A += JCref.transpose() * JCref;
-        right += B * Dinv * B.transpose();
+        right += B * Dinv * B.transpose();*/
 
         pos++;
     }
 
-    Eigen::MatrixXd J2 = J.block(0, 0, pos * 4, 3 + pos * 3);
+    //Eigen::MatrixXd J2 = J.block(0, 0, pos * 4, 16 + pos * 3);
 
-    std::cout << "---------" << std::endl;
-    std::cout << (A - right).inverse() << std::endl;
+    std::cout << (J.transpose() * J).inverse().block<3, 3>(0, 0) << std::endl;
 
-    std::cout << (J2.transpose() * J2).inverse().block<3, 3>(0, 0) << std::endl;*/
+    return true;
+}
+
+
+bool refinePoseStructure(Mat3& R, Vec3& t, std::vector<Vec3>& structure, std::vector<size_t>& newVecInliers, std::shared_ptr<camera::Pinhole> & refPinhole, std::shared_ptr<camera::Pinhole> & nextPinhole, const Mat& x1, const Mat& x2)
+{
 
     return true;
 }
@@ -156,7 +158,7 @@ bool getPoseStructure(Mat3& R, Vec3& t, std::vector<Vec3>& structure, std::vecto
         }
     }
 
-    if(newVecInliers.size() < 35)
+    if(newVecInliers.size() < 10)
     {
         return false;
     }
@@ -230,21 +232,13 @@ int aliceVision_main(int argc, char** argv)
     std::string sfmDataFilename;
     std::vector<std::string> featuresFolders;
     std::string tracksFilename;
-    std::string outputFile;
+    std::string outputDirectory;
     int rangeStart = -1;
     int rangeSize = 1;
 
     // user optional parameters
-    std::string outputSfMViewsAndPoses;
-    std::string extraInfoFolder;
     std::string describerTypesName = feature::EImageDescriberType_enumToString(feature::EImageDescriberType::SIFT);
-    std::pair<std::string, std::string> initialPairString("", "");
 
-    bool lockScenePreviouslyReconstructed = true;
-    int maxNbMatches = 0;
-    int minNbMatches = 0;
-    bool useOnlyMatchesFromInputFolder = false;
-    bool computeStructureColor = true;
 
     int randomSeed = std::mt19937::default_seed;
 
@@ -252,7 +246,7 @@ int aliceVision_main(int argc, char** argv)
     requiredParams.add_options()
     ("input,i", po::value<std::string>(&sfmDataFilename)->required(), "SfMData file.")
     ("tracksFilename,i", po::value<std::string>(&tracksFilename)->required(), "Tracks file.")
-    ("output,o", po::value<std::string>(&outputFile)->required(), "Path to the output file.");
+    ("output,o", po::value<std::string>(&outputDirectory)->required(), "Path to the output directory.");
 
     po::options_description optionalParams("Optional parameters");
     optionalParams.add_options()
@@ -352,10 +346,8 @@ int aliceVision_main(int argc, char** argv)
     ALICEVISION_LOG_INFO("Process co-visibility");
 
     std::stringstream ss;
-    ss << "_" << rangeStart << ".json";
-    fs::path path(outputFile);
-    path.replace_extension(ss.str());
-    std::ofstream of(path.string());
+    ss << outputDirectory << "/pairs_" << rangeStart << ".json";
+    std::ofstream of(ss.str());
 
     std::vector<sfm::ReconstructedPair> reconstructedPairs;
 
@@ -363,7 +355,7 @@ int aliceVision_main(int argc, char** argv)
     int chunkStart = int(double(rangeStart) * ratioChunk);
     int chunkEnd = int(double(rangeStart + rangeSize) * ratioChunk);
 
-//#pragma omp parallel for
+#pragma omp parallel for
     for(int posPairs = chunkStart; posPairs < chunkEnd; posPairs++)
     {
         auto iterPairs = covisibility.begin();
@@ -431,10 +423,15 @@ int aliceVision_main(int argc, char** argv)
             continue;
         }
 
-        if(!getPoseCovariance(reconstructed.R, reconstructed.t, structure, inliers, refPinhole, nextPinhole))
+        if(!refinePoseStructure(reconstructed.R, reconstructed.t, structure, inliers, refPinhole, nextPinhole, refX, nextX))
         {
             continue;
         }
+
+        /*if(!getPoseCovariance(reconstructed.R, reconstructed.t, structure, inliers, refPinhole, nextPinhole))
+        {
+            continue;
+        }*/
 
 #pragma omp critical
         {
