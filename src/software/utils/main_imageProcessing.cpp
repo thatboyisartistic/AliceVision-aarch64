@@ -302,6 +302,7 @@ struct ProcessingParams
     bool fixNonFinite = false;
     bool applyDcpMetadata = false;
     bool useDCPColorMatrixOnly = false;
+    double corrColorTemp = -1.0;
 
     LensCorrectionParams lensCorrection =
     {
@@ -648,7 +649,7 @@ void processImage(image::Image<image::RGBAfColor>& image, const ProcessingParams
             neutral[i] = v_mult[i] / v_mult[1];
         }
 
-        dcpProf.applyLinear(image, neutral, true, pParams.useDCPColorMatrixOnly);
+        dcpProf.applyLinear(image, neutral, true, pParams.useDCPColorMatrixOnly, pParams.corrColorTemp);
     }
 }
 
@@ -765,6 +766,7 @@ int aliceVision_main(int argc, char * argv[])
     bool doWBAfterDemosaicing = false;
     std::string demosaicingAlgo = "AHD";
     int highlightMode = 0;
+    double correlatedColorTemperature = -1;
 
     ProcessingParams pParams;
 
@@ -886,6 +888,10 @@ int aliceVision_main(int argc, char * argv[])
         ("highlightMode", po::value<int>(&highlightMode)->default_value(highlightMode),
          "Highlight management (see libRaw documentation).\n"
          "0 = clip (default), 1 = unclip, 2 = blend, 3+ = rebuild.")
+
+        ("correlatedColorTemperature", po::value<double>(&correlatedColorTemperature)->default_value(correlatedColorTemperature),
+         "Correlated Color Temperature in Kelvin of scene illuminant.\n"
+         "If less than or equal to 0.0, value extracted from metadata will be used.")
 
         ("storageDataType", po::value<image::EStorageDataType>(&storageDataType)->default_value(storageDataType),
          ("Storage data type: " + image::EStorageDataType_informations()).c_str())
@@ -1035,6 +1041,7 @@ int aliceVision_main(int argc, char * argv[])
                 options.colorProfileFileName = view.getColorProfileFileName();
                 options.demosaicingAlgo = demosaicingAlgo;
                 options.highlightMode = highlightMode;
+                options.correlatedColorTemperature = correlatedColorTemperature;
             }
 
             if (pParams.lensCorrection.enabled && pParams.lensCorrection.vignetting)
@@ -1252,6 +1259,7 @@ int aliceVision_main(int argc, char * argv[])
                 readOptions.doWBAfterDemosaicing = doWBAfterDemosaicing;
                 readOptions.demosaicingAlgo = demosaicingAlgo;
                 readOptions.highlightMode = highlightMode;
+                readOptions.correlatedColorTemperature = correlatedColorTemperature;
 
                 pParams.useDCPColorMatrixOnly = useDCPColorMatrixOnly;
                 if (pParams.applyDcpMetadata)
