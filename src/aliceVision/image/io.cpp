@@ -610,7 +610,9 @@ void readImage(const std::string& path,
 
         ALICEVISION_LOG_TRACE("Apply DCP Linear processing with neutral = " << neutral);
 
-        dcpProfile.applyLinear(inBuf, neutral, imageReadOptions.doWBAfterDemosaicing, imageReadOptions.useDCPColorMatrixOnly, imageReadOptions.correlatedColorTemperature);
+        double cct = imageReadOptions.correlatedColorTemperature;
+
+        dcpProfile.applyLinear(inBuf, neutral, cct, imageReadOptions.doWBAfterDemosaicing, imageReadOptions.useDCPColorMatrixOnly);
     }
 
     // color conversion
@@ -656,7 +658,9 @@ void readImage(const std::string& path,
             neutral[i] = v_mult[i] / v_mult[1];
         }
 
-        dcpProf.applyLinear(inBuf, neutral, imageReadOptions.doWBAfterDemosaicing, imageReadOptions.useDCPColorMatrixOnly, imageReadOptions.correlatedColorTemperature);
+        double cct = imageReadOptions.correlatedColorTemperature;
+
+        dcpProf.applyLinear(inBuf, neutral, cct, imageReadOptions.doWBAfterDemosaicing, imageReadOptions.useDCPColorMatrixOnly);
         fromColorSpaceName = "aces2065-1";
     }
 

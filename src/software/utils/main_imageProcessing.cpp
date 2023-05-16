@@ -302,7 +302,8 @@ struct ProcessingParams
     bool fixNonFinite = false;
     bool applyDcpMetadata = false;
     bool useDCPColorMatrixOnly = false;
-    double corrColorTemp = -1.0;
+    bool sourceIsRaw = false;
+    double correlatedColorTemperature = -1.0;
 
     LensCorrectionParams lensCorrection =
     {
@@ -385,7 +386,7 @@ void undistortVignetting(aliceVision::image::Image<aliceVision::image::RGBAfColo
     }
 }
 
-void processImage(image::Image<image::RGBAfColor>& image, const ProcessingParams& pParams, const std::map<std::string, std::string>& imageMetadata, const camera::IntrinsicBase* cam = NULL)
+void processImage(image::Image<image::RGBAfColor>& image, const ProcessingParams& pParams, std::map<std::string, std::string>& imageMetadata, const camera::IntrinsicBase* cam = NULL)
 {
     const unsigned int nchannels = 4;
 
@@ -573,8 +574,7 @@ void processImage(image::Image<image::RGBAfColor>& image, const ProcessingParams
 #endif
     }
 
-
-    if (pParams.applyDcpMetadata)
+    if (pParams.applyDcpMetadata || (pParams.sourceIsRaw && pParams.correlatedColorTemperature <= 0.0))
     {
         bool dcpMetadataOK = map_has_non_empty_value(imageMetadata, "AliceVision:DCP:Temp1") &&
                              map_has_non_empty_value(imageMetadata, "AliceVision:DCP:Temp2") &&
@@ -649,7 +649,24 @@ void processImage(image::Image<image::RGBAfColor>& image, const ProcessingParams
             neutral[i] = v_mult[i] / v_mult[1];
         }
 
-        dcpProf.applyLinear(image, neutral, true, pParams.useDCPColorMatrixOnly, pParams.corrColorTemp);
+        double cct = pParams.correlatedColorTemperature;
+        double tint;
+
+        if (pParams.sourceIsRaw)
+        {
+            dcpProf.getColorTemperatureAndTintFromNeutral(neutral, cct, tint);
+        }
+
+        if (pParams.applyDcpMetadata)
+        {
+            dcpProf.applyLinear(image, neutral, cct, true, pParams.useDCPColorMatrixOnly);
+        }
+
+        imageMetadata["AliceVision:ColorTemperature"] = std::to_string(cct);
+    }
+    else if (pParams.sourceIsRaw && pParams.correlatedColorTemperature > 0.0)
+    {
+        imageMetadata["AliceVision:ColorTemperature"] = std::to_string(pParams.correlatedColorTemperature);
     }
 }
 
@@ -1042,6 +1059,8 @@ int aliceVision_main(int argc, char * argv[])
                 options.demosaicingAlgo = demosaicingAlgo;
                 options.highlightMode = highlightMode;
                 options.correlatedColorTemperature = correlatedColorTemperature;
+                pParams.correlatedColorTemperature = correlatedColorTemperature;
+                pParams.sourceIsRaw = true;
             }
 
             if (pParams.lensCorrection.enabled && pParams.lensCorrection.vignetting)
@@ -1074,8 +1093,10 @@ int aliceVision_main(int argc, char * argv[])
             sfmData::Intrinsics::const_iterator iterIntrinsic = sfmData.getIntrinsics().find(view.getIntrinsicId());
             const camera::IntrinsicBase* cam = iterIntrinsic->second.get();
 
+            std::map<std::string, std::string> viewMetadata = view.getMetadata();
+
             // Image processing
-            processImage(image, pParams, view.getMetadata(), cam);
+            processImage(image, pParams, viewMetadata, cam);
 
             if (pParams.applyDcpMetadata)
             {
@@ -1083,7 +1104,7 @@ int aliceVision_main(int argc, char * argv[])
             }
 
             // Save the image
-            saveImage(image, viewPath, outputfilePath, view.getMetadata(), metadataFolders, workingColorSpace, outputFormat, outputColorSpace, storageDataType);
+            saveImage(image, viewPath, outputfilePath, viewMetadata, metadataFolders, workingColorSpace, outputFormat, outputColorSpace, storageDataType);
 
             // Update view for this modification
             view.setImagePath(outputfilePath);
@@ -1260,6 +1281,8 @@ int aliceVision_main(int argc, char * argv[])
                 readOptions.demosaicingAlgo = demosaicingAlgo;
                 readOptions.highlightMode = highlightMode;
                 readOptions.correlatedColorTemperature = correlatedColorTemperature;
+                pParams.correlatedColorTemperature = correlatedColorTemperature;
+                pParams.sourceIsRaw = true;
 
                 pParams.useDCPColorMatrixOnly = useDCPColorMatrixOnly;
                 if (pParams.applyDcpMetadata)
