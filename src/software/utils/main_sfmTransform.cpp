@@ -22,7 +22,7 @@
 // These constants define the current software version.
 // They must be updated when the command line is changed.
 #define ALICEVISION_SOFTWARE_VERSION_MAJOR 1
-#define ALICEVISION_SOFTWARE_VERSION_MINOR 0
+#define ALICEVISION_SOFTWARE_VERSION_MINOR 1
 
 using namespace aliceVision;
 
@@ -247,6 +247,7 @@ int aliceVision_main(int argc, char **argv)
   bool applyScale = true;
   bool applyRotation = true;
   bool applyTranslation = true;
+  bool alignGround = true;
   std::vector<sfm::MarkerWithCoord> markers;
   std::string outputViewsAndPosesFilepath;
 
@@ -291,6 +292,8 @@ int aliceVision_main(int argc, char **argv)
         "Apply rotation transformation.")
     ("applyTranslation", po::value<bool>(&applyTranslation)->default_value(applyTranslation),
         "Apply translation transformation.")
+    ("alignGround", po::value<bool>(&alignGround)->default_value(alignGround),
+        "Apply ground detection and alignment (only in AUTO mode).")
     ("markers", po::value<std::vector<sfm::MarkerWithCoord>>(&markers)->multitoken(),
         "Markers ID and target coordinates 'ID:x,y,z'.")
     ("outputViewsAndPoses", po::value<std::string>(&outputViewsAndPosesFilepath),
@@ -512,7 +515,7 @@ int aliceVision_main(int argc, char **argv)
   sfm::applyTransform(sfmData, S, R, t);
  
   // Ground detection requires the scene to have a correct Y axis
-  if (alignmentMethod == EAlignmentMethod::AUTO)
+  if (alignmentMethod == EAlignmentMethod::AUTO && alignGround)
   {
     sfm::computeNewCoordinateSystemGroundAuto(sfmData, t);
     sfm::applyTransform(sfmData, 1.0, Eigen::Matrix3d::Identity(), t);
