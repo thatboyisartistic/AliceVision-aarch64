@@ -697,10 +697,10 @@ void BundleAdjustmentCeres::addIntrinsicsToProblem(const sfmData::SfMData& sfmDa
       const double opticalCenterMaxPercent =  0.05;
 
       // add bounds to the principal point
-      problem.SetParameterLowerBound(intrinsicBlockPtr, 2, opticalCenterMinPercent * intrinsicPtr->w());
+      /*problem.SetParameterLowerBound(intrinsicBlockPtr, 2, opticalCenterMinPercent * intrinsicPtr->w());
       problem.SetParameterUpperBound(intrinsicBlockPtr, 2, opticalCenterMaxPercent * intrinsicPtr->w());
       problem.SetParameterLowerBound(intrinsicBlockPtr, 3, opticalCenterMinPercent * intrinsicPtr->h());
-      problem.SetParameterUpperBound(intrinsicBlockPtr, 3, opticalCenterMaxPercent * intrinsicPtr->h());
+      problem.SetParameterUpperBound(intrinsicBlockPtr, 3, opticalCenterMaxPercent * intrinsicPtr->h());*/
     }
     else
     {
@@ -1028,6 +1028,7 @@ bool BundleAdjustmentCeres::adjust(sfmData::SfMData& sfmData, ERefineOptions ref
   // configure a Bundle Adjustment engine and run it
   // make Ceres automatically detect the bundle structure.
   ceres::Solver::Options options;
+  options.max_num_iterations = 10000;
   setSolverOptions(options);
 
   // solve BA
@@ -1048,6 +1049,21 @@ bool BundleAdjustmentCeres::adjust(sfmData::SfMData& sfmData, ERefineOptions ref
   // update input sfmData with the solution
   updateFromSolution(sfmData, refineOptions);
 
+  ceres::Covariance::Options covoptions;
+  ceres::Covariance cov(covoptions);
+
+  std::vector<std::pair<const double*, const double*>> blocks;
+
+  for (auto & it : _posesBlocks)
+  {
+    blocks.push_back(std::make_pair(it.second.data(), it.second.data()));
+  }
+
+
+  if (!cov.Compute(blocks, &problem))
+  {
+    return false;
+  }
 
   // store some statitics from the summary
   _statistics.time = summary.total_time_in_seconds;
