@@ -178,12 +178,16 @@ if(WIN32)
 elseif(APPLE)
    set(VORPALINE_PLATFORM Darwin-clang-dynamic)
 elseif(UNIX)
-   set(VORPALINE_PLATFORM Linux64-gcc-dynamic)
+    if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
+        set(VORPALINE_PLATFORM Linux64-gcc-aarch64)
+    else()
+        set(VORPALINE_PLATFORM Linux64-gcc-dynamic)
+    endif()
 endif()
 set(GEOGRAM_TARGET geogram)
 ExternalProject_Add(${GEOGRAM_TARGET}
-       URL https://github.com/BrunoLevy/geogram/releases/download/v1.8.3/geogram_1.8.3.tar.gz
-       URL_HASH MD5=06fa5a70c05830d103ff71c55da5bb53
+       URL https://github.com/thatboyisartistic/geogram-aarch64/archive/refs/tags/v0.1-alpha.tar.gz
+       URL_HASH MD5=8572e84e4da7c21e758c2b68f9b38d29
        DOWNLOAD_DIR ${BUILD_DIR}/download/geogram
        PREFIX ${BUILD_DIR}
        BUILD_IN_SOURCE 0
